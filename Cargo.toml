@@ -1,0 +1,11 @@
+[package]
+name = "arc-config"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hash40 = { path = "../hash40-rs" }
+serde = { version = "1", features = ["derive"] }
+camino = "1.0.9"
