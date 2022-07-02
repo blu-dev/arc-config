@@ -91,6 +91,11 @@ pub struct Config {
 }
 
 impl Config {
+    /// Helper method to deserialize the mod configuration from a JSON string
+    pub fn from_json<S: AsRef<str>>(json: S) -> serde_json::Result<Self> {
+        serde_json::from_str(json.as_ref())
+    }
+
     /// Helper method to deserialize the mod configuration from a JSON file
     pub fn from_file_json<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         std::fs::read_to_string(path).and_then(|string| {
