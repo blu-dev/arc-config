@@ -1,55 +1,10 @@
 use std::{collections::HashMap, path::StripPrefixError};
 
-use crate::search;
+use crate::{search, ToExternal, ToSmashArc};
 use camino::{FromPathBufError, Utf8Path, Utf8PathBuf};
 use hash40::label_map::LabelMap;
 use smash_arc::{Hash40, LookupError, SearchLookup};
 use thiserror::Error;
-
-// hopefully sometime in the future this will be resolved and the world will be a better place lol
-pub trait ToSmashArc {
-    fn to_smash_arc(self) -> smash_arc::Hash40;
-}
-
-impl ToSmashArc for &str {
-    fn to_smash_arc(self) -> smash_arc::Hash40 {
-        self.into()
-    }
-}
-
-impl ToSmashArc for smash_arc::Hash40 {
-    fn to_smash_arc(self) -> smash_arc::Hash40 {
-        self
-    }
-}
-
-impl ToSmashArc for hash40::Hash40 {
-    fn to_smash_arc(self) -> smash_arc::Hash40 {
-        smash_arc::Hash40(self.0)
-    }
-}
-
-pub trait ToExternal {
-    fn to_external(self) -> hash40::Hash40;
-}
-
-impl ToExternal for &str {
-    fn to_external(self) -> hash40::Hash40 {
-        hash40::Hash40::new(self)
-    }
-}
-
-impl ToExternal for hash40::Hash40 {
-    fn to_external(self) -> hash40::Hash40 {
-        self
-    }
-}
-
-impl ToExternal for smash_arc::Hash40 {
-    fn to_external(self) -> hash40::Hash40 {
-        hash40::Hash40(self.0)
-    }
-}
 
 const INVALID: usize = 0xFF_FFFFusize;
 
