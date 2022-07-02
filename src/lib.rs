@@ -1,11 +1,14 @@
 #![feature(let_else)]
 #![feature(let_chains)]
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
+use camino::Utf8Path;
 use hash40::Hash40;
 use serde::{Deserialize, Serialize};
 
-mod search;
+pub mod generate;
+
+pub mod search;
 
 /// The base ARCropolis mod configuation format.
 ///
@@ -84,5 +87,95 @@ pub struct Config {
     /// the correct time as it would load other files
     #[serde(alias = "new-dir-files")]
     #[serde(default = "HashMap::new")]
-    pub new_dir_files: HashMap<Hash40, Hash40>,
+    pub new_dir_files: HashMap<Hash40, Vec<Hash40>>,
+}
+
+impl Config {
+    /// Helper method to deserialize the mod configuration from a JSON file
+    pub fn from_file_json<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
+        std::fs::read_to_string(path).and_then(|string| {
+            serde_json::from_str(&string).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Json Deserialization Error: {:?}", e),
+                )
+            })
+        })
+    }
+
+    /// Helper method to serialize the mod configuration to a JSON file
+    pub fn to_file_json<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Json Serialization Error: {:?}", e),
+                )
+            })
+            .and_then(|string| std::fs::write(path, string))
+    }
+
+    /// Helper method to merge two mod configurations
+    pub fn merge(&mut self, other: Self) {
+        let Self {
+            unshare_blacklist,
+            preprocess_reshare,
+            share_to_vanilla,
+            share_to_added,
+            new_dir_files,
+        } = other;
+
+        self.unshare_blacklist.extend(unshare_blacklist);
+        self.preprocess_reshare.extend(preprocess_reshare);
+
+        for (k, v) in share_to_vanilla {
+            if let Some(set) = self.share_to_vanilla.get_mut(&k) {
+                set.0.extend(v.0);
+            } else {
+                self.share_to_vanilla.insert(k, v);
+            }
+        }
+
+        for (k, v) in share_to_added {
+            if let Some(set) = self.share_to_added.get_mut(&k) {
+                set.0.extend(v.0);
+            } else {
+                self.share_to_added.insert(k, v);
+            }
+        }
+
+        self.new_dir_files.extend(new_dir_files);
+    }
+}
+
+/// Convenience method for converting a path to Hash40, allowing an inter-mix of hashes and strings on a component basis.
+///
+/// For example, both of the following are the same:
+/// ```
+/// path_to_hash("fighter/mario/model/body/c00/model.numdlb");
+/// path_to_hash("fighter/mario/0x5d79572d9/body/c00/model.numdlb");
+/// ```
+/// This method is agnostic of path separators since it uses the path's components.
+pub fn path_to_hash(path: &Utf8Path) -> Hash40 {
+    // start with an empty hash
+    let mut hashed = Hash40::new("");
+    for component in path.components() {
+        // get the component as a string
+        let component = component.as_str();
+
+        hashed = if hashed == Hash40(0) {
+            // get the label from the hash, which can either by a hex string or
+            Hash40::from_label(component).unwrap()
+        } else if component.starts_with("0x") && component.contains('.') {
+            // if the component is a hex string AND it contains a period, we expect it to be in the format of
+            // <file_name_hash>.<extension>, since the file name hash also includes the extension but we need the extension
+            // when generating the search section
+            hashed.join_path(Hash40::from_label(component.split_once('.').unwrap().0).unwrap())
+        } else {
+            // otherwise we just want to join the path
+            hashed.join_path(Hash40::from_label(component).unwrap())
+        }
+    }
+
+    hashed
 }

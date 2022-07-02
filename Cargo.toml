@@ -6,6 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hash40 = { path = "../hash40-rs" }
+hash40 = { git = "https://github.com/BenHall-7/hash40-rs" }
+smash-arc = { git = "https://github.com/blu-dev/smash-arc", features = ["libzstd"] } # temporary until changes get merged upstream
 serde = { version = "1", features = ["derive"] }
 camino = "1.0.9"
+thiserror = "1.0.31"
+serde_json = "1.0.82"

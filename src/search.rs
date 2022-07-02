@@ -1,6 +1,31 @@
 use camino::Utf8Path;
 use hash40::Hash40;
 use serde::{de::Error, de::Visitor, ser::SerializeMap, Deserialize, Serialize};
+use smash_arc::{FolderPathListEntry, PathListEntry, SearchListEntry, SearchLookup};
+use std::{collections::BTreeMap, path::Path};
+use thiserror::Error;
+
+use crate::path_to_hash;
+
+#[derive(Error, Debug)]
+pub enum SearchError {
+    /// The path provided has no file name
+    #[error("The path has no file name")]
+    MissingFileName,
+
+    /// The path provided has an invalid parent, which is usually the case when the path
+    /// is already the root path
+    #[error("The path has an invalid parent directory")]
+    InvalidParent,
+
+    /// The path provided is missing an extension, which is problematic for files
+    #[error("The file path is missing an extension")]
+    MissingExtension,
+
+    /// Other generic IO error
+    #[error("IO Error")]
+    IO(#[from] std::io::Error),
+}
 
 struct FolderVisitor;
 
@@ -92,6 +117,7 @@ impl<'de> Visitor<'de> for FolderVisitor {
 }
 
 /// Represents one entry using a recursive structure to navigate through parents. Used when adding new folders to the search section.
+#[derive(Debug, Clone)]
 pub struct Folder {
     pub full_path: Hash40,
     pub name: Option<Hash40>,
@@ -103,13 +129,23 @@ impl Serialize for Folder {
     where
         S: serde::Serializer,
     {
-        if let Some(name) = self.name.as_ref() && let Some(parent) = self.parent.as_ref() {
-            let mut map = serializer.serialize_map(Some(2))?;
-            map.serialize_entry("name", name)?;
-            map.serialize_entry("parent", parent)?;
-            map.end()
+        // when serializing, attempt to rebuild the path using it's parts (which can be derived
+        // correctly based on search section/path components
+        let path = self.get_path();
+        if path.starts_with("0x") {
+            // if the path does not exist, then we are just going to try serializing the file name and parent
+            // this is done because it provides the most information as simple hashes (or as labels if they are found)
+            if let Some(name) = self.name.as_ref() && let Some(parent) = self.parent.as_ref() {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("name", name)?;
+                map.serialize_entry("parent", parent)?;
+                map.end()
+            } else {
+                // we don't have both a name and a parent, so just serialize the path
+                self.full_path.serialize(serializer)
+            }
         } else {
-            self.full_path.serialize(serializer)
+            serializer.serialize_str(&path)
         }
     }
 }
@@ -231,6 +267,7 @@ impl<'de> Visitor<'de> for FileVisitor {
 }
 
 /// Represents one entry using a recursive structure to naviagate through parents. Used when adding new files to any table.
+#[derive(Debug, Clone)]
 pub struct File {
     pub full_path: Hash40,
     pub file_name: Hash40,
@@ -252,11 +289,18 @@ impl Serialize for File {
     where
         S: serde::Serializer,
     {
-        let mut map = serializer.serialize_map(Some(3))?;
-        map.serialize_entry("file-name", &self.file_name)?;
-        map.serialize_entry("parent", &self.parent)?;
-        map.serialize_entry("extension", &self.extension)?;
-        map.end()
+        // like the folder, attempt to reconstruct the path. if that information is not available than simply
+        // serialize a map
+        let path = self.get_path();
+        if path.starts_with("0x") {
+            let mut map = serializer.serialize_map(Some(3))?;
+            map.serialize_entry("file-name", &self.file_name)?;
+            map.serialize_entry("parent", &self.parent)?;
+            map.serialize_entry("extension", &self.extension)?;
+            map.end()
+        } else {
+            serializer.serialize_str(&path)
+        }
     }
 }
 
@@ -273,6 +317,7 @@ impl<'de> Visitor<'de> for FileSetVisitor {
     where
         E: Error,
     {
+        // if we get a single string then it is just a singular file
         FileVisitor
             .visit_str::<E>(v)
             .map(|value| FileSet(vec![value]))
@@ -282,6 +327,7 @@ impl<'de> Visitor<'de> for FileSetVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
+        // if we get a single map then it is just a singular file
         FileVisitor.visit_map(map).map(|value| FileSet(vec![value]))
     }
 
@@ -289,6 +335,8 @@ impl<'de> Visitor<'de> for FileSetVisitor {
     where
         A: serde::de::SeqAccess<'de>,
     {
+        // if we get a set, it means that there is more than one file
+        // and we need to collect them all
         let mut vec = vec![];
         while let Some(item) = seq.next_element()? {
             vec.push(item)
@@ -298,7 +346,7 @@ impl<'de> Visitor<'de> for FileSetVisitor {
 }
 
 /// Represents a collection of new files, with a custom serializer/deserializer to make it easy for regular users to provide input.
-pub struct FileSet(Vec<File>);
+pub struct FileSet(pub Vec<File>);
 
 impl<'de> Deserialize<'de> for FileSet {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -314,10 +362,441 @@ impl Serialize for FileSet {
     where
         S: serde::Serializer,
     {
+        // serialize as either a full set or a single item without brackets
         if self.0.len() == 1 {
             self.0[0].serialize(serializer)
         } else {
             self.0.serialize(serializer)
         }
+    }
+}
+
+// Formatting shenanigans
+impl File {
+    /// Attempts to reconstruct the path based off of it's components if it cannot find the whole path
+    /// in the label map
+    fn get_path(&self) -> String {
+        // first just check if the label exists, if so move forward
+        let label = self.full_path.to_label();
+        if !label.starts_with("0x") {
+            return label;
+        }
+
+        // if the label doesn't exist, ensure that a label for the name exists
+        let name = self.file_name.to_label();
+
+        // if it doesn't, then dip out because there's no way to recreate it
+        if name.starts_with("0x") {
+            return label;
+        }
+
+        // if the name exists, check if the parent exists, leaving for the same reasons
+        let parent = self.parent.get_path();
+
+        if parent.starts_with("0x") {
+            return label;
+        }
+
+        format!("{}/{}", parent, name)
+    }
+
+    /// Converts a Utf8Path into a recursive file structure, without adding to the label map
+    /// This method considers any component split by a Unix path separator `/` as it's own item to hash
+    ///
+    /// # Panicking
+    /// This method calls `unwrap` on results produced by `Hash40::from_label`, it is up to the caller
+    /// to ensure that the path provided contains valid components
+    pub fn from_path<P: AsRef<Utf8Path>>(path: P) -> Result<Self, SearchError> {
+        let path = path.as_ref();
+
+        // get all of the required parts ahead of time
+        let file_name = path.file_name().ok_or(SearchError::MissingFileName)?;
+        let extension = path.extension().ok_or(SearchError::MissingExtension)?;
+        let parent = path.parent().ok_or(SearchError::InvalidParent)?;
+
+        // convert from either hex string or label to hash
+        let full_path = Hash40::from_label(path.as_str()).unwrap();
+        let file_name = Hash40::from_label(file_name).unwrap();
+        let extension = Hash40::from_label(extension).unwrap();
+
+        // recursively get the parent of this path
+        let parent = Folder::from_path(parent)?;
+
+        Ok(Self {
+            full_path,
+            file_name,
+            parent,
+            extension,
+        })
+    }
+}
+
+impl Folder {
+    fn get_path(&self) -> String {
+        fn internal(folder: &Folder) -> Option<String> {
+            let label = folder.full_path.to_label();
+            if !label.starts_with("0x") {
+                return Some(label);
+            }
+
+            let name = folder.name.as_ref().map(Hash40::to_label)?;
+
+            if name.starts_with("0x") {
+                return None;
+            }
+
+            let parent = folder.parent.as_ref().and_then(|parent| internal(parent))?;
+
+            Some(format!("{}/{}", parent, name))
+        }
+
+        internal(self).unwrap_or_else(|| self.full_path.to_label())
+    }
+
+    pub fn from_path<P: AsRef<Utf8Path>>(path: P) -> Result<Self, SearchError> {
+        let path = path.as_ref();
+
+        let name = path.file_name().ok_or(SearchError::MissingFileName)?;
+        let parent = path.parent().ok_or(SearchError::InvalidParent)?;
+
+        let (name, parent) = if parent == Utf8Path::new("") || parent == Utf8Path::new("/") {
+            (None, None)
+        } else {
+            (
+                Some(Hash40::new(name)),
+                Some(Box::new(Self::from_path(parent)?)),
+            )
+        };
+
+        let full_path = Hash40::new(path.as_str());
+
+        Ok(Self {
+            full_path,
+            name,
+            parent,
+        })
+    }
+}
+
+/// A user-path based search section which implements the data.arc's search section to the degree required by [`smash_arc::SearchLookup`]
+pub struct UserSearchSection {
+    folder_lookup: Vec<smash_arc::HashToIndex>,
+    folders: Vec<FolderPathListEntry>,
+    path_index_lookup: Vec<smash_arc::HashToIndex>,
+    path_indices: Vec<u32>,
+    paths: Vec<PathListEntry>,
+}
+
+impl UserSearchSection {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, SearchError> {
+        let filesystem = std::fs::read_to_string(path)?;
+
+        let paths: Vec<&Utf8Path> = filesystem.lines().map(Utf8Path::new).collect();
+        let result = Self::from_paths(&paths)?;
+
+        let path_labels = paths.into_iter().flat_map(|path| {
+            path.components()
+                .into_iter()
+                .filter_map(|component| {
+                    if component.as_str().starts_with("0x") {
+                        None
+                    } else if component.as_str().contains('.') {
+                        Some(
+                            vec![
+                                component.to_string(),
+                                component
+                                    .as_str()
+                                    .split_once('.')
+                                    .map(|(_, ext)| ext.to_string())
+                                    .unwrap(),
+                            ]
+                            .into_iter(),
+                        )
+                    } else {
+                        Some(vec![component.to_string()].into_iter())
+                    }
+                })
+                .flatten()
+        });
+
+        let labels = hash40::Hash40::label_map();
+        let mut map = labels.lock().unwrap();
+        map.add_labels(path_labels);
+        crate::generate::fill_label_map_from_search(&result, &mut map).unwrap();
+
+        Ok(result)
+    }
+
+    pub fn from_paths(path_list: &[&Utf8Path]) -> Result<Self, SearchError> {
+        struct Context {
+            folder_lookup: BTreeMap<smash_arc::Hash40, usize>,
+            path_lookup: BTreeMap<smash_arc::Hash40, usize>,
+
+            folders: Vec<FolderPathListEntry>,
+            paths: Vec<PathListEntry>,
+        }
+
+        impl Context {
+            fn make_path_entry(path: &Utf8Path) -> Result<PathListEntry, SearchError> {
+                let file_name = path.file_name().ok_or(SearchError::MissingFileName)?;
+
+                let (file_name, extension) = if file_name.starts_with("0x") {
+                    let mut split = file_name.split('.');
+                    (
+                        split.next().ok_or(SearchError::MissingFileName)?,
+                        split.next().ok_or(SearchError::MissingExtension)?,
+                    )
+                } else {
+                    let extension = path.extension().ok_or(SearchError::MissingExtension)?;
+                    (file_name, extension)
+                };
+
+                let parent = path.parent().ok_or(SearchError::InvalidParent)?;
+
+                let full_path = path_to_hash(path);
+                let name = Hash40::from_label(file_name).unwrap();
+                let extension = Hash40::from_label(extension).unwrap();
+                let parent_hash = path_to_hash(parent);
+
+                let mut path = smash_arc::HashToIndex::default();
+                let mut file_name = smash_arc::HashToIndex::default();
+                let mut parent = smash_arc::HashToIndex::default();
+                let mut ext = smash_arc::HashToIndex::default();
+
+                path.set_hash(full_path.crc());
+                path.set_length(full_path.str_len());
+                path.set_index(0xFF_FFFFu32);
+
+                file_name.set_hash(name.crc());
+                file_name.set_length(name.str_len());
+
+                parent.set_hash(parent_hash.crc());
+                parent.set_length(parent_hash.str_len());
+
+                ext.set_hash(extension.crc());
+                ext.set_length(extension.str_len());
+
+                Ok(PathListEntry(SearchListEntry {
+                    path,
+                    file_name,
+                    parent,
+                    ext,
+                }))
+            }
+
+            fn make_folder_entry(path: &Utf8Path) -> Result<FolderPathListEntry, SearchError> {
+                let file_name = path.file_name().ok_or(SearchError::MissingFileName)?;
+                let parent = path.parent().ok_or(SearchError::InvalidParent)?;
+
+                let full_path = path_to_hash(path);
+                let name = Hash40::from_label(file_name).unwrap();
+                let parent_hash = if parent == Utf8Path::new("") {
+                    Hash40::new("/")
+                } else {
+                    path_to_hash(parent)
+                };
+
+                let mut path = smash_arc::HashToIndex::default();
+                let mut file_name = smash_arc::HashToIndex::default();
+                let mut parent = smash_arc::HashToIndex::default();
+                let ext = smash_arc::HashToIndex::default();
+
+                path.set_hash(full_path.crc());
+                path.set_length(full_path.str_len());
+
+                file_name.set_hash(name.crc());
+                file_name.set_length(name.str_len());
+
+                parent.set_hash(parent_hash.crc());
+                parent.set_length(parent_hash.str_len());
+
+                Ok(FolderPathListEntry(SearchListEntry {
+                    path,
+                    file_name,
+                    parent,
+                    ext,
+                }))
+            }
+
+            fn insert_folder(&mut self, path: &Utf8Path) -> Result<(), SearchError> {
+                let mut folder = Self::make_folder_entry(path)?;
+                let parent_index =
+                    if let Some(index) = self.folder_lookup.get(&folder.parent.hash40()) {
+                        *index
+                    } else {
+                        self.insert_folder(path.parent().ok_or(SearchError::InvalidParent)?)?;
+                        self.folder_lookup
+                            .get(&folder.parent.hash40())
+                            .copied()
+                            .unwrap()
+                    };
+
+                // insert the folder, but we aren't done yet, we need to create a path list entry
+                folder.set_first_child_index(0xFF_FFFF);
+                self.folder_lookup
+                    .insert(folder.path.hash40(), self.folders.len());
+                self.folders.push(folder);
+
+                let new_path_index = self.paths.len();
+                let mut path_entry = folder.as_path_entry();
+                path_entry.path.set_index(0xFF_FFFF);
+                self.paths.push(path_entry);
+                self.path_lookup
+                    .insert(path_entry.path.hash40(), new_path_index);
+
+                let first_child = self.folders[parent_index].get_first_child_index();
+
+                if first_child == 0xFF_FFFF {
+                    self.folders[parent_index].set_first_child_index(new_path_index as u32);
+                } else {
+                    let mut current_child = first_child;
+                    loop {
+                        if self.paths[current_child].path.index() == 0xFF_FFFF {
+                            self.paths[current_child]
+                                .path
+                                .set_index(new_path_index as u32);
+                            break;
+                        }
+
+                        current_child = self.paths[current_child].path.index() as usize;
+                    }
+                }
+
+                Ok(())
+            }
+
+            fn insert_file(&mut self, path: &Utf8Path) -> Result<(), SearchError> {
+                let mut path_entry = Self::make_path_entry(path)?;
+                let parent_index =
+                    if let Some(index) = self.folder_lookup.get(&path_entry.parent.hash40()) {
+                        *index
+                    } else {
+                        self.insert_folder(path.parent().ok_or(SearchError::InvalidParent)?)?;
+                        self.folder_lookup
+                            .get(&path_entry.parent.hash40())
+                            .copied()
+                            .unwrap()
+                    };
+
+                let new_path_index = self.paths.len();
+                path_entry.path.set_index(0xFF_FFFF);
+                self.paths.push(path_entry);
+                self.path_lookup
+                    .insert(path_entry.path.hash40(), new_path_index);
+
+                let first_child = self.folders[parent_index].get_first_child_index();
+
+                if first_child == 0xFF_FFFF {
+                    self.folders[parent_index].set_first_child_index(new_path_index as u32);
+                } else {
+                    let mut current_child = first_child;
+                    loop {
+                        if self.paths[current_child].path.index() == 0xFF_FFFF {
+                            self.paths[current_child]
+                                .path
+                                .set_index(new_path_index as u32);
+                            break;
+                        }
+
+                        current_child = self.paths[current_child].path.index() as usize;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        let mut context = Context {
+            folder_lookup: BTreeMap::new(),
+            path_lookup: BTreeMap::new(),
+            folders: Vec::new(),
+            paths: Vec::new(),
+        };
+
+        let mut root_path = {
+            // start it off with our lord and savior, the root path
+            let mut path = smash_arc::HashToIndex::default();
+            let root_hash = Hash40::new("/");
+            path.set_hash(root_hash.crc());
+            path.set_length(root_hash.str_len());
+
+            FolderPathListEntry(SearchListEntry {
+                path,
+                file_name: path,
+                parent: smash_arc::HashToIndex::default(),
+                ext: smash_arc::HashToIndex::default(),
+            })
+        };
+
+        root_path.set_first_child_index(0xFF_FFFF);
+
+        context.folders.push(root_path);
+        context
+            .folder_lookup
+            .insert(smash_arc::Hash40::from("/"), 0);
+
+        for path in path_list {
+            context.insert_file(path)?;
+        }
+
+        let Context {
+            folder_lookup,
+            path_lookup,
+            folders,
+            paths,
+        } = context;
+
+        let folder_lookup: Vec<smash_arc::HashToIndex> = folder_lookup
+            .into_iter()
+            .map(|(hash, index)| {
+                let mut key = smash_arc::HashToIndex::default();
+                key.set_hash(hash.crc32());
+                key.set_length(hash.len());
+                key.set_index(index as u32);
+                key
+            })
+            .collect();
+
+        let path_index_lookup: Vec<smash_arc::HashToIndex> = path_lookup
+            .into_iter()
+            .map(|(hash, index)| {
+                let mut key = smash_arc::HashToIndex::default();
+                key.set_hash(hash.crc32());
+                key.set_length(hash.len());
+                key.set_index(index as u32);
+                key
+            })
+            .collect();
+
+        let path_indices = (0..paths.len()).into_iter().map(|x| x as u32).collect();
+
+        Ok(Self {
+            folder_lookup,
+            folders,
+            path_index_lookup,
+            path_indices,
+            paths,
+        })
+    }
+}
+
+impl SearchLookup for UserSearchSection {
+    fn get_folder_path_to_index(&self) -> &[smash_arc::HashToIndex] {
+        &self.folder_lookup
+    }
+
+    fn get_folder_path_list(&self) -> &[FolderPathListEntry] {
+        &self.folders
+    }
+
+    fn get_path_to_index(&self) -> &[smash_arc::HashToIndex] {
+        &self.path_index_lookup
+    }
+
+    fn get_path_list_indices(&self) -> &[u32] {
+        &self.path_indices
+    }
+
+    fn get_path_list(&self) -> &[PathListEntry] {
+        &self.paths
     }
 }
