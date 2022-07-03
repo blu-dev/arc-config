@@ -91,6 +91,16 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn new() -> Self {
+        Self {
+            unshare_blacklist: Vec::new(),
+            preprocess_reshare: HashMap::new(),
+            share_to_vanilla: HashMap::new(),
+            share_to_added: HashMap::new(),
+            new_dir_files: HashMap::new(),
+        }
+    }
+
     /// Helper method to deserialize the mod configuration from a JSON string
     pub fn from_json<S: AsRef<str>>(json: S) -> serde_json::Result<Self> {
         serde_json::from_str(json.as_ref())
@@ -150,6 +160,12 @@ impl Config {
         }
 
         self.new_dir_files.extend(new_dir_files);
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
