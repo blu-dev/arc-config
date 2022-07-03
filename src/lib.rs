@@ -88,6 +88,16 @@ pub struct Config {
     #[serde(alias = "new-dir-files")]
     #[serde(default = "HashMap::new")]
     pub new_dir_files: HashMap<Hash40, Vec<Hash40>>,
+
+    #[serde(alias = "new-dir-infos")]
+    #[serde(default = "Vec::new")]
+    pub new_dir_infos: Vec<String>,
+
+    #[serde(alias = "new-dir-infos-base")]
+    #[serde(default = "HashMap::new")]
+    pub new_dir_infos_base: HashMap<String, String>,
+
+
 }
 
 impl Config {
@@ -98,6 +108,8 @@ impl Config {
             share_to_vanilla: HashMap::new(),
             share_to_added: HashMap::new(),
             new_dir_files: HashMap::new(),
+            new_dir_infos: Vec::new(),
+            new_dir_infos_base: HashMap::new(),
         }
     }
 
@@ -138,6 +150,8 @@ impl Config {
             share_to_vanilla,
             share_to_added,
             new_dir_files,
+            new_dir_infos,
+            new_dir_infos_base
         } = other;
 
         self.unshare_blacklist.extend(unshare_blacklist);
@@ -160,6 +174,9 @@ impl Config {
         }
 
         self.new_dir_files.extend(new_dir_files);
+
+        self.new_dir_infos.extend(new_dir_infos.into_iter());
+        self.new_dir_infos_base.extend(new_dir_infos_base.into_iter());
     }
 }
 
