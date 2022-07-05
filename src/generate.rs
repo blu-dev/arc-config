@@ -243,7 +243,7 @@ fn compare_folders_impl(
                 // get the path entry
                 let path_entry = &search.get_path_list()[path_index];
                 // we don't care if it exists or not, since we are checking all of the files.
-                // Folders are automatically inserted by arcropois if they are missing.
+                // Folders are automatically inserted by arcropolis if they are missing.
                 let dst_name = dst
                     .to_external()
                     .join_path(path_entry.file_name.hash40().to_external());
@@ -492,7 +492,7 @@ pub fn fill_label_map_from_search(
                 label_map.add_labels(vec![component.to_string()]);
             }
         }
-        // the label does not exist, which means we are going to try recursively constructing the new label pased on the search section hierarchy
+        // the label does not exist, which means we are going to try recursively constructing the new label passed on the search section hierarchy
         else if let Some(label) = build_new_path(search, index, label_map) {
             label_map.add_labels(vec![label])
         }

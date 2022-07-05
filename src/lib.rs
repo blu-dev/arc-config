@@ -10,7 +10,7 @@ pub mod generate;
 
 pub mod search;
 
-/// The base ARCropolis mod configuation format.
+/// The base ARCropolis mod configuration format.
 ///
 /// This format enables the user to have some control over how the filesystem is recreated,
 /// in order to save size on their mod distributions, or to just modify the filesystem itself,
@@ -47,14 +47,14 @@ pub struct Config {
     /// }
     /// ```
     ///
-    /// This field can take signular strings (as shown above), or it can take a set of strings (or `NewFile` structures, but those are usually
+    /// This field can take singular strings (as shown above), or it can take a set of strings (or `NewFile` structures, but those are usually
     /// handled by tools which auto-generate the config).
     /// ```json
     /// {
     ///     "share-to-vanilla": {
     ///         "fighter/mario/model/body/c00/def_mario_001_col.nutexb": [
     ///             "fighter/mario/model/body/c01/def_mario_001_col.nutexb",
-    ///             "fighter/mario/model/body/c02/def_mario_001_col.nutexb"    
+    ///             "fighter/mario/model/body/c02/def_mario_001_col.nutexb"
     ///         ]
     ///     }
     /// }
@@ -63,8 +63,8 @@ pub struct Config {
     #[serde(default = "HashMap::new")]
     pub share_to_vanilla: HashMap<Hash40, search::FileSet>,
 
-    /// Allows users to specify files to share to added fiels. This is valid for
-    /// fiels which currently do not exist in the filesystem, or fiels which already do.
+    /// Allows users to specify files to share to added files. This is valid for
+    /// files which currently do not exist in the filesystem, or files which already do.
     ///
     /// For example, the following would share Mario's first costume to a new file placed somewhere else
     /// in the filesystem:
