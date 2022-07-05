@@ -89,10 +89,31 @@ pub struct Config {
     #[serde(default = "HashMap::new")]
     pub new_dir_files: HashMap<Hash40, Vec<Hash40>>,
 
+    /// Allows users to specify any added dir infos, one use case is allowing for mod creators to distribute character
+    /// mods on character slot numbers that don't exist in the base game
+    /// Here's an example of the usage:
+    /// ```json
+    /// {
+    ///    "new-dir-infos": [
+    ///        "fighter/luigi/c08"
+    ///    ]
+    /// }
+    /// ```
     #[serde(alias = "new-dir-infos")]
     #[serde(default = "Vec::new")]
     pub new_dir_infos: Vec<String>,
 
+    /// Allows users to add a dir info that they would like to point to a different dir info.
+    ///
+    /// For example, basing the cmn and camera dir infos on a fighter slot for an added one:
+    /// ```json
+    /// {
+    ///     "new-dir-infos-base": {
+    ///            "fighter/luigi/c08/cmn": "fighter/luigi/c00/cmn",
+    ///            "fighter/luigi/c08/camera": "fighter/luigi/c00/camera"
+    ///     }
+    /// }
+    /// ```
     #[serde(alias = "new-dir-infos-base")]
     #[serde(default = "HashMap::new")]
     pub new_dir_infos_base: HashMap<String, String>,
