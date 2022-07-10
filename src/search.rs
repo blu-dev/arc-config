@@ -266,7 +266,7 @@ impl<'de> Visitor<'de> for FileVisitor {
     }
 }
 
-/// Represents one entry using a recursive structure to naviagate through parents. Used when adding new files to any table.
+/// Represents one entry using a recursive structure to navigate through parents. Used when adding new files to any table.
 #[derive(Debug, Clone)]
 pub struct File {
     pub full_path: Hash40,

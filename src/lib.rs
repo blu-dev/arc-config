@@ -10,7 +10,7 @@ pub mod generate;
 
 pub mod search;
 
-/// The base ARCropolis mod configuation format.
+/// The base ARCropolis mod configuration format.
 ///
 /// This format enables the user to have some control over how the filesystem is recreated,
 /// in order to save size on their mod distributions, or to just modify the filesystem itself,
@@ -47,14 +47,14 @@ pub struct Config {
     /// }
     /// ```
     ///
-    /// This field can take signular strings (as shown above), or it can take a set of strings (or `NewFile` structures, but those are usually
+    /// This field can take singular strings (as shown above), or it can take a set of strings (or `NewFile` structures, but those are usually
     /// handled by tools which auto-generate the config).
     /// ```json
     /// {
     ///     "share-to-vanilla": {
     ///         "fighter/mario/model/body/c00/def_mario_001_col.nutexb": [
     ///             "fighter/mario/model/body/c01/def_mario_001_col.nutexb",
-    ///             "fighter/mario/model/body/c02/def_mario_001_col.nutexb"    
+    ///             "fighter/mario/model/body/c02/def_mario_001_col.nutexb"
     ///         ]
     ///     }
     /// }
@@ -63,8 +63,8 @@ pub struct Config {
     #[serde(default = "HashMap::new")]
     pub share_to_vanilla: HashMap<Hash40, search::FileSet>,
 
-    /// Allows users to specify files to share to added fiels. This is valid for
-    /// fiels which currently do not exist in the filesystem, or fiels which already do.
+    /// Allows users to specify files to share to added files. This is valid for
+    /// files which currently do not exist in the filesystem, or files which already do.
     ///
     /// For example, the following would share Mario's first costume to a new file placed somewhere else
     /// in the filesystem:
@@ -88,6 +88,37 @@ pub struct Config {
     #[serde(alias = "new-dir-files")]
     #[serde(default = "HashMap::new")]
     pub new_dir_files: HashMap<Hash40, Vec<Hash40>>,
+
+    /// Allows users to specify any added dir infos, one use case is allowing for mod creators to distribute character
+    /// mods on character slot numbers that don't exist in the base game
+    /// Here's an example of the usage:
+    /// ```json
+    /// {
+    ///    "new-dir-infos": [
+    ///        "fighter/luigi/c08"
+    ///    ]
+    /// }
+    /// ```
+    #[serde(alias = "new-dir-infos")]
+    #[serde(default = "Vec::new")]
+    pub new_dir_infos: Vec<String>,
+
+    /// Allows users to add a dir info that they would like to point to a different dir info.
+    ///
+    /// For example, basing the cmn and camera dir infos on a fighter slot for an added one:
+    /// ```json
+    /// {
+    ///     "new-dir-infos-base": {
+    ///            "fighter/luigi/c08/cmn": "fighter/luigi/c00/cmn",
+    ///            "fighter/luigi/c08/camera": "fighter/luigi/c00/camera"
+    ///     }
+    /// }
+    /// ```
+    #[serde(alias = "new-dir-infos-base")]
+    #[serde(default = "HashMap::new")]
+    pub new_dir_infos_base: HashMap<String, String>,
+
+
 }
 
 impl Config {
@@ -98,6 +129,8 @@ impl Config {
             share_to_vanilla: HashMap::new(),
             share_to_added: HashMap::new(),
             new_dir_files: HashMap::new(),
+            new_dir_infos: Vec::new(),
+            new_dir_infos_base: HashMap::new(),
         }
     }
 
@@ -138,6 +171,8 @@ impl Config {
             share_to_vanilla,
             share_to_added,
             new_dir_files,
+            new_dir_infos,
+            new_dir_infos_base
         } = other;
 
         self.unshare_blacklist.extend(unshare_blacklist);
@@ -160,6 +195,9 @@ impl Config {
         }
 
         self.new_dir_files.extend(new_dir_files);
+
+        self.new_dir_infos.extend(new_dir_infos.into_iter());
+        self.new_dir_infos_base.extend(new_dir_infos_base.into_iter());
     }
 }
 
