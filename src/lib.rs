@@ -1,4 +1,5 @@
 #![feature(let_else)]
+#![feature(let_chains)]
 use std::{collections::HashMap, path::Path};
 
 use camino::Utf8Path;
