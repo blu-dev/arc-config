@@ -35,7 +35,7 @@ pub enum GenerateError {
     IO(#[from] std::io::Error),
 }
 
-enum SearchEntry {
+pub enum SearchEntry {
     File(usize),
     Folder {
         path_index: usize,
@@ -43,7 +43,7 @@ enum SearchEntry {
     },
 }
 
-trait SearchEntryVecExt {
+pub trait SearchEntryVecExt {
     fn flatten(self) -> Self;
 }
 
@@ -69,7 +69,7 @@ impl SearchEntryVecExt for Vec<SearchEntry> {
 /// ### Returns
 /// * `Ok(children)` - A `Vec` of the child entries
 /// * `Err` - A [`GenerateError`]
-fn walk_search_section<H: ToSmashArc>(
+pub fn walk_search_section<H: ToSmashArc>(
     search: &impl SearchLookup,
     folder: H,
     depth: Option<usize>,

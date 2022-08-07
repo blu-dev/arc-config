@@ -1,5 +1,4 @@
 #![feature(let_else)]
-#![feature(let_chains)]
 use std::{collections::HashMap, path::Path};
 
 use camino::Utf8Path;
@@ -9,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub mod generate;
 
 pub mod search;
+
+pub use smash_arc;
 
 /// The base ARCropolis mod configuration format.
 ///
@@ -117,8 +118,6 @@ pub struct Config {
     #[serde(alias = "new-dir-infos-base")]
     #[serde(default = "HashMap::new")]
     pub new_dir_infos_base: HashMap<String, String>,
-
-
 }
 
 impl Config {
@@ -172,7 +171,7 @@ impl Config {
             share_to_added,
             new_dir_files,
             new_dir_infos,
-            new_dir_infos_base
+            new_dir_infos_base,
         } = other;
 
         self.unshare_blacklist.extend(unshare_blacklist);
@@ -194,10 +193,17 @@ impl Config {
             }
         }
 
-        self.new_dir_files.extend(new_dir_files);
+        for (k, v) in new_dir_files {
+            if let Some(files) = self.new_dir_files.get_mut(&k) {
+                files.extend(v);
+            } else {
+                self.new_dir_files.insert(k, v);
+            }
+        }
 
-        self.new_dir_infos.extend(new_dir_infos.into_iter());
-        self.new_dir_infos_base.extend(new_dir_infos_base.into_iter());
+        self.new_dir_infos.extend(new_dir_infos);
+
+        self.new_dir_infos_base.extend(new_dir_infos_base);
     }
 }
 
