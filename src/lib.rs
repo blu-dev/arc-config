@@ -5,6 +5,8 @@ use camino::Utf8Path;
 use hash40::Hash40;
 use serde::{Deserialize, Serialize};
 
+pub use hash40;
+
 pub mod generate;
 
 pub mod search;

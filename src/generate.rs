@@ -494,7 +494,13 @@ pub fn fill_label_map_from_search(
         }
         // the label does not exist, which means we are going to try recursively constructing the new label passed on the search section hierarchy
         else if let Some(label) = build_new_path(search, index, label_map) {
-            label_map.add_labels(vec![label])
+            let mut path = Utf8Path::new(label.as_str()).parent();
+            while let Some(parent) = path {
+                path = parent.parent();
+                label_map.add_labels(vec![parent.to_string()]);
+            }
+
+            label_map.add_labels(vec![label]);
         }
     }
 
